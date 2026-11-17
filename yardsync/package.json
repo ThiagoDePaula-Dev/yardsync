@@ -1,0 +1,22 @@
+{
+  "name": "yardsync",
+  "version": "0.1.0",
+  "description": "YardSync - gestão de pátio e rastreio de veículos para concessionárias",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file=.env src/server.js",
+    "test": "node --test"
+  },
+  "keywords": ["pátio", "veículos", "qr-code", "concessionária"],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "pg": "^8.11.3"
+  }
+}
