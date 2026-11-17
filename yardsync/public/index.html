@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#20282D">
+<title>YardSync - Controle de Pátio</title>
+<script>
+  // Aplica o tema antes de desenhar a página (evita "piscar" de claro para escuro)
+  (function () {
+    var mq = function (q) { return window.matchMedia && window.matchMedia(q).matches; };
+    window.aplicarTema = function () {
+      var t = 'auto';
+      try { t = localStorage.getItem('yardsync_tema') || 'auto'; } catch (e) {}
+      var real = t;
+      if (t === 'auto') real = mq('(prefers-contrast: more)') ? 'contraste' : mq('(prefers-color-scheme: dark)') ? 'escuro' : 'claro';
+      document.documentElement.setAttribute('data-tema', real);
+      var m = document.querySelector('meta[name=theme-color]');
+      if (m) m.setAttribute('content', real === 'claro' ? '#20282D' : '#000000');
+    };
+    window.aplicarTema();
+    if (window.matchMedia) {
+      ['(prefers-color-scheme: dark)', '(prefers-contrast: more)'].forEach(function (q) {
+        var l = window.matchMedia(q);
+        if (l.addEventListener) l.addEventListener('change', function () { window.aplicarTema(); });
+      });
+    }
+  })();
+</script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  :root {
+    --asfalto: #20282D;
+    --concreto: #EEF0F1;
+    --papel: #FFFFFF;
+    --texto: #1B2327;
+    --suave: #5B6870;
+    --linha: #D6DADD;
+    --campo: #FFFFFF;
+    --borda-campo: #6F7B82;          /* contraste de 4,3:1 contra o branco (mínimo 3:1 para controles) */
+    --faixa: #F5B700;
+    --foco: #0B57D0;
+    --btn-bg: #20282D;
+    --btn-fg: #FFFFFF;
+    --destaque: #FFF8E1;
+    --ok-fundo: #1F7A52;
+    --erro: #B93426;
+    --erro-fundo: #B93426;
+    --erro-fg: #FFFFFF;
+    --c-cd: #4A5A66;
+    --c-loja: #1F7A52;
+    --c-transito: #8A5A00;           /* escurecido: contraste de 5,9:1 com texto branco */
+    --c-solicitado: #2F5FA8;
+    --raio: 6px;
+  }
+  :root[data-tema="escuro"] {
+    --concreto: #12171A; --papel: #1C2429; --texto: #EDF0F1; --suave: #AEB9BF; --linha: #3A474F;
+    --campo: #12171A; --borda-campo: #8E9AA1; --foco: #FFD400;
+    --btn-bg: #F5B700; --btn-fg: #1B2327; --destaque: #3A3000; --erro: #FF8A7A;
+  }
+  :root[data-tema="contraste"] {
+    --concreto: #000; --papel: #000; --texto: #FFF; --suave: #FFF; --linha: #FFF;
+    --campo: #000; --borda-campo: #FFF; --foco: #FFD400; --asfalto: #000;
+    --btn-bg: #FFD400; --btn-fg: #000; --destaque: #000; --erro: #FF9A8F; --erro-fundo: #FF9A8F; --erro-fg: #000;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 1rem; background: var(--concreto); color: var(--texto); line-height: 1.45; padding-bottom: 5rem; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+  header :focus-visible, nav :focus-visible, .pular:focus-visible { outline-color: #FFF; }
+  .hidden { display: none !important; }
+  [aria-busy="true"] { opacity: .6; cursor: wait; }
+
+  .pular { position: absolute; left: .5rem; top: -4rem; background: var(--faixa); color: #000; padding: .6rem 1rem; border-radius: var(--raio); font-weight: 700; z-index: 30; }
+  .pular:focus { top: .5rem; }
+
+  header { background: var(--asfalto); color: #fff; padding: .875rem 1rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; position: relative; }
+  header::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: repeating-linear-gradient(90deg, var(--faixa) 0 18px, transparent 18px 30px); }
+  header h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.2px; }
+  header .quem { font-size: .875rem; color: #E2E7EA; text-align: right; }
+  header .quem button { background: none; border: 0; color: var(--faixa); padding: .5rem 0 .5rem .75rem; font-size: .875rem; cursor: pointer; min-height: 2.75rem; text-decoration: underline; }
+
+  main { max-width: 760px; margin: 0 auto; padding: .875rem; }
+  main:focus { outline: none; }
+  h2 { font-size: 1.125rem; margin: .25rem 0 .75rem; }
+  h2:focus { outline: none; }
+  h3 { font-size: .9375rem; margin: 1.125rem 0 .5rem; }
+  .painel { background: var(--papel); border: 1px solid var(--linha); border-radius: var(--raio); padding: .875rem; margin-bottom: .875rem; }
+  .apoio { color: var(--suave); font-size: .875rem; }
+
+  label { display: block; font-size: .875rem; font-weight: 600; color: var(--suave); margin: .625rem 0 .25rem; }
+  input, select, textarea { width: 100%; min-height: 2.75rem; padding: .5625rem .6875rem; border: 1px solid var(--borda-campo); border-radius: var(--raio); background: var(--campo); }
+  textarea { min-height: 4.75rem; resize: vertical; }
+  .linha2 { display: grid; grid-template-columns: 1fr 1fr; gap: .625rem; }
+  .acoes { display: flex; gap: .625rem; margin-top: .75rem; flex-wrap: wrap; }
+  .msg-erro { color: var(--erro); font-weight: 700; margin: .625rem 0 0; font-size: .9375rem; }
+  [aria-invalid="true"] { border-color: var(--erro); border-width: 2px; }
+
+  button.btn { min-height: 2.75rem; padding: .625rem 1rem; border-radius: var(--raio); border: 2px solid var(--btn-bg); background: var(--btn-bg); color: var(--btn-fg); font-weight: 700; cursor: pointer; flex: 1; }
+  button.btn:hover { filter: brightness(1.12); }
+  button.btn.sec { background: var(--papel); color: var(--texto); border-color: var(--texto); }
+  button.btn.perigo { background: var(--papel); color: var(--erro); border-color: var(--erro); }
+  button.btn[aria-pressed="true"] { background: var(--destaque); border-color: var(--faixa); box-shadow: inset 0 0 0 2px var(--faixa); }
+  button.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  nav { position: fixed; left: 0; right: 0; bottom: 0; background: var(--asfalto); display: flex; z-index: 5; padding-bottom: env(safe-area-inset-bottom, 0); border-top: 1px solid #FFF3; }
+  nav button { flex: 1; min-width: 0; min-height: 3.5rem; padding: 0 .125rem; background: none; border: 0; color: #D3DADE; font-weight: 700; font-size: .8125rem; cursor: pointer; border-top: 3px solid transparent; }
+  nav button[aria-current="page"] { color: #fff; border-top-color: var(--faixa); }
+
+  .resumo { display: grid; grid-template-columns: repeat(2, 1fr); gap: .625rem; margin-bottom: .875rem; }
+  @media (min-width: 560px) { .resumo { grid-template-columns: repeat(3, 1fr); } }
+  .num { background: var(--papel); color: var(--texto); border: 1px solid var(--linha); border-left: 6px solid var(--cor, var(--asfalto)); border-radius: var(--raio); padding: .625rem .75rem; text-align: left; width: 100%; min-height: 2.75rem; }
+  button.num { cursor: pointer; }
+  .num b { display: block; font-size: 1.625rem; line-height: 1.1; }
+  .num span { font-size: .875rem; color: var(--suave); }
+  .num[aria-pressed="true"] { background: var(--destaque); border-color: var(--faixa); border-left-color: var(--cor, var(--faixa)); box-shadow: inset 0 0 0 2px var(--faixa); }
+
+  .veiculo { display: block; width: 100%; text-align: left; background: var(--papel); color: var(--texto); border: 1px solid var(--linha); border-radius: var(--raio); padding: .75rem; margin-bottom: .5rem; cursor: pointer; min-height: 2.75rem; }
+  .veiculo:hover { border-color: var(--texto); }
+  .veiculo .topo { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  .placa { font-weight: 800; font-size: 1.125rem; letter-spacing: 1px; background: var(--papel); color: var(--texto); border: 2px solid var(--texto); border-radius: 4px; padding: 0 .5rem; display: inline-block; }
+  .veiculo .meta { color: var(--suave); font-size: .9375rem; margin-top: .375rem; }
+  .chip { display: inline-block; font-size: .8125rem; font-weight: 700; color: #fff; padding: .1875rem .625rem; border-radius: 99px; background: var(--c-cd); white-space: nowrap; }
+  .chip[data-loc="Pátio Loja"] { background: var(--c-loja); }
+  .chip[data-loc="Em Trânsito"] { background: var(--c-transito); }
+  .chip[data-loc="Solicitado do CD"] { background: var(--c-solicitado); }
+  :root[data-tema="contraste"] .chip { outline: 2px solid #FFF; }
+  .atraso { color: var(--erro); font-weight: 700; }
+  .vazio { text-align: center; color: var(--suave); padding: 1.5rem .5rem; }
+
+  #reader { width: 100%; max-width: 420px; margin: .75rem auto 0; }
+  #reader video { max-width: 100%; }
+
+  dialog { width: min(640px, 100%); max-height: 100%; border: 0; border-radius: 10px 10px 0 0; padding: 0; margin: auto auto 0; background: var(--papel); color: var(--texto); }
+  dialog::backdrop { background: rgba(10, 14, 16, .7); }
+  .ficha-topo { display: flex; justify-content: space-between; align-items: center; padding: .875rem 1rem; border-bottom: 1px solid var(--linha); position: sticky; top: 0; background: var(--papel); }
+  .ficha-corpo { padding: .25rem 1rem 1.25rem; }
+  dl.dados { display: grid; grid-template-columns: max-content 1fr; gap: .375rem .875rem; margin: .75rem 0; font-size: .9375rem; }
+  dl.dados dt { color: var(--suave); }
+  dl.dados dd { margin: 0; font-weight: 600; word-break: break-word; }
+  ul.hist { list-style: none; margin: 0; padding: 0; font-size: .875rem; color: var(--suave); }
+  ul.hist li { padding: .375rem 0; border-top: 1px solid var(--linha); }
+
+  .usuario { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .5rem 0; border-top: 1px solid var(--linha); }
+  .usuario button { flex: 0 0 auto; }
+
+  /* Avisos: as duas regiões ficam sempre na página, para o leitor de tela anunciar */
+  .aviso { position: fixed; left: .75rem; right: .75rem; bottom: 5rem; z-index: 20; max-width: 560px; margin: 0 auto; padding: .75rem .875rem; border-radius: var(--raio); font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.3); background: var(--btn-bg); color: var(--btn-fg); border: 2px solid transparent; }
+  #aviso-erro { background: var(--erro-fundo); color: var(--erro-fg); }
+  :root[data-tema="contraste"] .aviso { border-color: #FFF; }
+  .aviso:empty { padding: 0; border: 0; height: 0; overflow: hidden; box-shadow: none; }
+
+  #login { max-width: 380px; margin: 2.5rem auto; }
+
+  /* Etiquetas */
+  .et-lista { max-height: 16rem; overflow: auto; border: 1px solid var(--linha); border-radius: var(--raio); }
+  .et-item { display: flex; align-items: center; gap: .75rem; margin: 0; padding: .375rem .75rem; min-height: 2.75rem; font-weight: 600; color: var(--texto); border-top: 1px solid var(--linha); cursor: pointer; }
+  .et-item:first-child { border-top: 0; }
+  .et-item input { width: 1.5rem; height: 1.5rem; min-height: 0; flex: 0 0 auto; }
+  #folha { display: flex; flex-wrap: wrap; gap: 4mm; --qr: 3cm; margin-top: .875rem; }
+  .etiqueta { margin: 0; padding: 3mm; background: #fff; color: #000; border: 1px dashed #666; display: flex; flex-direction: column; align-items: center; break-inside: avoid; }
+  .etiqueta svg { width: var(--qr); height: var(--qr); display: block; }
+  .etiqueta figcaption { font-weight: 800; font-size: 14pt; letter-spacing: 1px; margin-top: 1mm; display: flex; flex-direction: column; align-items: center; }
+  .etiqueta .chassi { font: 700 6.5pt/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .2px; margin-top: .5mm; text-align: center; word-break: break-all; max-width: calc(var(--qr) + 4mm); }
+  .etiqueta .chassi.grande { font-size: 9pt; }
+
+  @media print {
+    @page { margin: 10mm; }
+    body { background: #fff; padding: 0; }
+    body > *:not(main), .nao-imprimir { display: none !important; }
+    main { padding: 0; max-width: none; }
+    #v-etiquetas > *:not(#folha) { display: none !important; }
+    #folha { margin: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<a class="pular" href="#conteudo">Ir para o conteúdo</a>
+
+<header>
+  <h1>YardSync</h1>
+  <div class="quem hidden" id="quem"><span id="quem-nome"></span><button type="button" id="btn-sair">Sair</button></div>
+</header>
+
+<div id="aviso" class="aviso" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="aviso-erro" class="aviso" role="alert" aria-atomic="true"></div>
+
+<main id="conteudo" tabindex="-1">
+
+  <section id="login" class="hidden" aria-labelledby="t-login">
+    <div class="painel">
+      <h2 id="t-login">Entrar no sistema</h2>
+      <label for="l-user">Usuário</label>
+      <input id="l-user" autocomplete="username" autocapitalize="none" aria-describedby="err-login">
+      <label for="l-senha">Senha</label>
+      <input id="l-senha" type="password" autocomplete="current-password" aria-describedby="err-login">
+      <p id="err-login" class="msg-erro" role="alert" hidden></p>
+      <div class="acoes"><button class="btn" id="btn-login" type="button">Entrar</button></div>
+    </div>
+  </section>
+
+  <div id="app" class="hidden">
+
+    <section id="v-patio" aria-labelledby="t-patio">
+      <h2 id="t-patio" tabindex="-1">Pátio e agendamentos</h2>
+      <div class="resumo" id="resumo" aria-label="Resumo do pátio"></div>
+      <div class="painel">
+        <label for="busca" style="margin-top:0">Buscar por placa, chassi ou cliente</label>
+        <input id="busca" type="search" placeholder="Ex.: ABC1234 ou João">
+        <div class="acoes">
+          <button type="button" class="btn sec" id="f-hoje" aria-pressed="false">Entregas de hoje</button>
+          <button type="button" class="btn sec" id="f-limpar">Limpar filtros</button>
+        </div>
+      </div>
+      <div id="lista" aria-live="polite">Carregando...</div>
+    </section>
+
+    <section id="v-scan" class="hidden" aria-labelledby="t-scan">
+      <h2 id="t-scan" tabindex="-1">Escanear QR Code do veículo</h2>
+      <div class="painel">
+        <div class="acoes" style="margin-top:0">
+          <button type="button" class="btn" id="btn-scan">Abrir câmera</button>
+          <button type="button" class="btn sec hidden" id="btn-lanterna" aria-pressed="false">Lanterna</button>
+        </div>
+        <div id="reader" aria-label="Imagem da câmera"></div>
+        <p class="apoio" style="margin-bottom:0">A câmera exige conexão segura (HTTPS). Ao ler a placa, o aparelho vibra e emite um som. Prefere não usar a câmera? Digite a placa ou o chassi abaixo, ou use um leitor Bluetooth/USB no campo de busca.</p>
+      </div>
+      <div class="painel">
+        <label for="placa-manual" style="margin-top:0">Digitar placa ou chassi</label>
+        <input id="placa-manual" placeholder="ABC1234 ou chassi de 17 caracteres" autocapitalize="characters" maxlength="24" aria-describedby="err-manual">
+        <p id="err-manual" class="msg-erro" role="alert" hidden></p>
+        <div class="acoes"><button type="button" class="btn" id="btn-manual">Buscar veículo</button></div>
+      </div>
+    </section>
+
+    <section id="v-novo" class="hidden" aria-labelledby="t-novo">
+      <h2 id="t-novo" tabindex="-1">Cadastrar veículo</h2>
+      <div class="painel">
+        <p class="apoio" style="margin-top:0">Informe <b>a placa, o chassi ou os dois</b>. Se o carro ainda está sem placa (em emplacamento), cadastre só pelo chassi e preencha a placa depois, na ficha do veículo.</p>
+        <label for="n-placa">Placa (opcional se informar o chassi)</label>
+        <input id="n-placa" autocapitalize="characters" maxlength="8" placeholder="ABC1234 ou ABC1D23" aria-describedby="err-novo">
+        <label for="n-chassi">Chassi (17 caracteres; opcional se informar a placa)</label>
+        <input id="n-chassi" autocapitalize="characters" maxlength="24" placeholder="Ex.: 9BWZZZ377VT004251" aria-describedby="err-novo">
+        <label for="n-cliente">Cliente</label>
+        <input id="n-cliente" maxlength="120" aria-describedby="err-novo">
+        <div class="linha2">
+          <div><label for="n-fat">Data de faturamento</label><input id="n-fat" type="date" aria-describedby="err-novo"></div>
+          <div><label for="n-loc">Localização inicial</label><select id="n-loc"></select></div>
+        </div>
+        <p class="apoio">A previsão de entrega é calculada ao salvar: faturamento + dias de SLA.</p>
+        <p id="err-novo" class="msg-erro" role="alert" hidden></p>
+        <div class="acoes"><button type="button" class="btn" id="btn-novo">Cadastrar veículo</button></div>
+      </div>
+    </section>
+
+    <section id="v-etiquetas" class="hidden" aria-labelledby="t-etiquetas">
+      <h2 id="t-etiquetas" tabindex="-1">Etiquetas QR Code</h2>
+      <div class="painel nao-imprimir">
+        <p class="apoio" style="margin-top:0">Cada etiqueta tem um QR Code com <b>somente a placa</b> (ou o chassi, se o carro ainda não tem placa), sem nome de cliente, e o texto escrito ao lado para digitação se o QR estiver danificado. Use QR de pelo menos 2,5 cm; códigos menores são difíceis de ler com pouca luz.</p>
+        <label for="et-busca">Filtrar a lista</label>
+        <input id="et-busca" type="search" placeholder="Placa ou cliente">
+        <div class="acoes">
+          <button type="button" class="btn sec" id="et-todos">Selecionar todos</button>
+          <button type="button" class="btn sec" id="et-nenhum">Limpar seleção</button>
+        </div>
+        <div class="et-lista" id="et-lista" role="group" aria-label="Veículos" style="margin-top:.75rem"></div>
+        <label for="et-tam">Tamanho do QR Code</label>
+        <select id="et-tam">
+          <option value="3" selected>3 cm (padrão)</option>
+          <option value="4">4 cm</option>
+          <option value="5">5 cm (leitura a mais distância)</option>
+        </select>
+        <p id="et-conta" class="apoio" role="status">0 etiqueta(s) selecionada(s)</p>
+        <div class="acoes"><button type="button" class="btn" id="btn-imprimir" disabled>Imprimir etiquetas</button></div>
+      </div>
+      <div id="folha" aria-label="Pré-visualização das etiquetas"></div>
+    </section>
+
+    <section id="v-ti" class="hidden" aria-labelledby="t-ti">
+      <h2 id="t-ti" tabindex="-1">Painel de TI</h2>
+      <div class="painel">
+        <h3 style="margin-top:0">Prazo de entrega (SLA)</h3>
+        <label for="ti-sla">Dias após o faturamento</label>
+        <input id="ti-sla" type="number" min="0" max="365" aria-describedby="err-sla">
+        <p id="err-sla" class="msg-erro" role="alert" hidden></p>
+        <div class="acoes"><button type="button" class="btn" id="btn-sla">Salvar SLA</button></div>
+      </div>
+      <div class="painel">
+        <h3 style="margin-top:0">Usuários</h3>
+        <div id="ti-usuarios"></div>
+        <h3>Novo usuário</h3>
+        <label for="u-nome">Usuário</label>
+        <input id="u-nome" autocapitalize="none" autocomplete="off" aria-describedby="err-user">
+        <label for="u-senha">Senha (mínimo 8 caracteres)</label>
+        <input id="u-senha" type="password" autocomplete="new-password" aria-describedby="err-user">
+        <label for="u-role">Perfil</label>
+        <select id="u-role">
+          <option value="operador">Operador de pátio</option>
+          <option value="administrador">Administrador</option>
+          <option value="ti">TI / Gestor</option>
+        </select>
+        <p id="err-user" class="msg-erro" role="alert" hidden></p>
+        <div class="acoes"><button type="button" class="btn" id="btn-user">Criar usuário</button></div>
+      </div>
+    </section>
+
+    <section id="v-conta" class="hidden" aria-labelledby="t-conta">
+      <h2 id="t-conta" tabindex="-1">Minha conta</h2>
+      <div class="painel">
+        <h3 style="margin-top:0">Aparência</h3>
+        <label for="tema">Tema</label>
+        <select id="tema">
+          <option value="auto">Automático (segue o celular)</option>
+          <option value="claro">Claro</option>
+          <option value="escuro">Escuro</option>
+          <option value="contraste">Alto contraste (uso ao sol)</option>
+        </select>
+        <p class="apoio">O tamanho do texto acompanha a configuração de fonte do seu aparelho ou navegador.</p>
+      </div>
+      <div class="painel">
+        <h3 style="margin-top:0">Trocar senha</h3>
+        <label for="s-atual">Senha atual</label>
+        <input id="s-atual" type="password" autocomplete="current-password" aria-describedby="err-senha">
+        <label for="s-nova">Nova senha (mínimo 8 caracteres)</label>
+        <input id="s-nova" type="password" autocomplete="new-password" aria-describedby="err-senha">
+        <p id="err-senha" class="msg-erro" role="alert" hidden></p>
+        <div class="acoes"><button type="button" class="btn" id="btn-senha">Alterar senha</button></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<nav id="menu" class="hidden" aria-label="Seções do sistema">
+  <button type="button" data-v="patio" aria-current="page">Pátio</button>
+  <button type="button" data-v="scan">Escanear</button>
+  <button type="button" data-v="novo" data-roles="administrador,ti">Cadastrar</button>
+  <button type="button" data-v="etiquetas" data-roles="administrador,ti">Etiquetas</button>
+  <button type="button" data-v="ti" data-roles="ti">TI</button>
+  <button type="button" data-v="conta">Conta</button>
+</nav>
+
+<dialog id="ficha" aria-labelledby="f-titulo">
+  <div class="ficha-topo">
+    <span class="placa" id="f-titulo"></span>
+    <button type="button" class="btn sec" id="f-fechar" style="flex:0 0 auto">Fechar</button>
+  </div>
+  <div class="ficha-corpo">
+    <dl class="dados" id="f-dados"></dl>
+
+    <h3>Localização</h3>
+    <label for="f-loc">Nova localização</label>
+    <select id="f-loc" aria-describedby="err-ficha"></select>
+    <div class="acoes"><button type="button" class="btn" id="f-salvar-loc">Salvar localização</button></div>
+
+    <div id="f-admin" class="hidden">
+      <h3>Dados do atendimento</h3>
+      <label for="f-status">Status</label>
+      <select id="f-status" aria-describedby="err-ficha"></select>
+      <div class="linha2">
+        <div><label for="f-ag">Entrega agendada</label><input id="f-ag" type="datetime-local" aria-describedby="err-ficha"></div>
+        <div><label for="f-fat">Faturamento</label><input id="f-fat" type="date" aria-describedby="err-ficha"></div>
+      </div>
+      <label for="f-cliente">Cliente</label>
+      <input id="f-cliente" maxlength="120" aria-describedby="err-ficha">
+      <label for="f-placa">Placa (deixe em branco se ainda não tiver)</label>
+      <input id="f-placa" autocapitalize="characters" maxlength="8" aria-describedby="err-ficha">
+      <label for="f-chassi">Chassi (17 caracteres)</label>
+      <input id="f-chassi" autocapitalize="characters" maxlength="24" aria-describedby="err-ficha">
+      <label for="f-obs">Observações</label>
+      <textarea id="f-obs" maxlength="500" aria-describedby="err-ficha"></textarea>
+      <div class="acoes">
+        <button type="button" class="btn" id="f-salvar">Salvar alterações</button>
+        <button type="button" class="btn sec" id="f-etiqueta">Imprimir etiqueta</button>
+        <button type="button" class="btn perigo hidden" id="f-excluir">Excluir veículo</button>
+      </div>
+    </div>
+    <p id="err-ficha" class="msg-erro" role="alert" hidden></p>
+
+    <h3>Histórico de movimentação</h3>
+    <ul class="hist" id="f-hist"></ul>
+  </div>
+</dialog>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let token = null;
+  try { token = localStorage.getItem('yardsync_token'); } catch (e) { /* armazenamento bloqueado */ }
+  let usuario = null;
+  let LOCS = ['Pátio Loja', 'CD', 'Em Trânsito', 'Solicitado do CD'];
+  let STATUS = [];
+  let chaveAtual = '';
+  let filtros = { localizacao: '', dia: '' };
+  let viewAtual = 'patio';
+
+  /* ---------- Utilitários ---------- */
+  const fmtPlaca = (p) => (/^[A-Z]{3}\d{4}$/.test(p || '') ? p.slice(0, 3) + '-' + p.slice(3) : p || '');
+  const idVeiculo = (v) => v.placa || v.chassi || '';                     // chave usada nas chamadas da API
+  const rotuloPlaca = (v) => (v.placa ? fmtPlaca(v.placa) : 'Sem placa');
+  const fmtData = (s) => (s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '-');
+  const fmtDH = (s) => (s ? fmtData(s) + ' ' + s.slice(11, 16) : '-');
+  const hojeISO = () => new Date().toLocaleDateString('en-CA');
+
+  // Avisos: duas regiões fixas na página (status = educado; erro = urgente)
+  let timerAviso;
+  function aviso(msg, tipo) {
+    const alvo = $(tipo === 'erro' ? 'aviso-erro' : 'aviso');
+    const outro = $(tipo === 'erro' ? 'aviso' : 'aviso-erro');
+    outro.textContent = '';
+    alvo.textContent = '';
+    clearTimeout(timerAviso);
+    setTimeout(() => { alvo.textContent = msg; }, 60); // o intervalo faz o leitor de tela anunciar de novo
+    timerAviso = setTimeout(() => { alvo.textContent = ''; }, 8000);
+  }
+
+  function mostrarErro(id, msg) {
+    const e = $(id);
+    e.textContent = msg;
+    e.hidden = false;
+    document.querySelectorAll('[aria-describedby~="' + id + '"]').forEach((i) => i.setAttribute('aria-invalid', 'true'));
+    e.scrollIntoView({ block: 'nearest' });
+  }
+  function limparErro(id) {
+    const e = $(id);
+    e.hidden = true;
+    e.textContent = '';
+    document.querySelectorAll('[aria-describedby~="' + id + '"]').forEach((i) => i.removeAttribute('aria-invalid'));
+  }
+
+  async function api(caminho, opts = {}) {
+    const r = await fetch('/api' + caminho, {
+      method: opts.method || 'GET',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    let d = null;
+    try { d = await r.json(); } catch (e) { /* resposta sem JSON */ }
+    if (r.status === 401 && token) { sair(); throw new Error('Sessão expirada. Entre novamente.'); }
+    if (!r.ok) throw new Error((d && d.mensagem) || 'Erro ' + r.status);
+    return d;
+  }
+
+  // Evita clique duplo sem tirar o foco do botão (aria-busy em vez de disabled)
+  async function acao(btn, fn, errId) {
+    if (btn.dataset.ocupado) return;
+    if (errId) limparErro(errId);
+    btn.dataset.ocupado = '1';
+    btn.setAttribute('aria-busy', 'true');
+    try { await fn(); }
+    catch (e) {
+      const m = e.message || 'Falha de conexão com o servidor.';
+      if (errId) mostrarErro(errId, m); else aviso(m, 'erro');
+    } finally {
+      delete btn.dataset.ocupado;
+      btn.removeAttribute('aria-busy');
+    }
+  }
+
+  /* ---------- Tema ---------- */
+  $('tema').value = (() => { try { return localStorage.getItem('yardsync_tema') || 'auto'; } catch (e) { return 'auto'; } })();
+  $('tema').onchange = () => {
+    try { localStorage.setItem('yardsync_tema', $('tema').value); } catch (e) { /* ignora */ }
+    window.aplicarTema();
+  };
+
+  /* ---------- Login / sessão ---------- */
+  async function iniciar() {
+    if (!token) return mostrarLogin();
+    try {
+      const me = await api('/me');
+      usuario = me.usuario; LOCS = me.localizacoes; STATUS = me.status;
+      mostrarApp();
+    } catch (e) { mostrarLogin(); }
+  }
+
+  function mostrarLogin() {
+    ['app', 'menu', 'quem'].forEach((i) => $(i).classList.add('hidden'));
+    $('login').classList.remove('hidden');
+    document.title = 'Entrar · YardSync';
+  }
+
+  function sair() {
+    token = null; usuario = null;
+    try { localStorage.removeItem('yardsync_token'); } catch (e) { /* ignora */ }
+    fecharScanner();
+    mostrarLogin();
+    $('l-user').focus();
+  }
+
+  $('btn-login').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/login', { method: 'POST', body: { username: $('l-user').value, password: $('l-senha').value } });
+    token = d.token;
+    try { localStorage.setItem('yardsync_token', token); } catch (e) { /* ignora */ }
+    $('l-senha').value = '';
+    $('login').classList.add('hidden');
+    await iniciar();
+  }, 'err-login');
+  $('l-senha').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-login').click(); });
+  $('btn-sair').onclick = sair;
+
+  const NOMES_PERFIL = { operador: 'Operador', administrador: 'Administrador', ti: 'TI / Gestor' };
+  const TITULOS = { patio: 'Pátio', scan: 'Escanear', novo: 'Cadastrar', etiquetas: 'Etiquetas', ti: 'Painel de TI', conta: 'Minha conta' };
+
+  function mostrarApp() {
+    $('login').classList.add('hidden');
+    ['app', 'menu', 'quem'].forEach((i) => $(i).classList.remove('hidden'));
+    $('quem-nome').textContent = usuario.username + ' (' + NOMES_PERFIL[usuario.role] + ')';
+    document.querySelectorAll('nav button[data-roles]').forEach((b) => b.classList.toggle('hidden', !b.dataset.roles.split(',').includes(usuario.role)));
+    const opts = (lista) => lista.map((x) => `<option>${esc(x)}</option>`).join('');
+    $('f-loc').innerHTML = opts(LOCS);
+    $('n-loc').innerHTML = opts(LOCS);
+    $('f-status').innerHTML = opts(STATUS);
+    $('n-fat').value = hojeISO();
+    irPara('patio', null, false);
+  }
+
+  /* ---------- Navegação ---------- */
+  function irPara(v, extra, moverFoco = true) {
+    viewAtual = v;
+    ['patio', 'scan', 'novo', 'etiquetas', 'ti', 'conta'].forEach((s) => $('v-' + s).classList.toggle('hidden', s !== v));
+    document.querySelectorAll('nav button').forEach((b) => (b.dataset.v === v ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current')));
+    document.title = TITULOS[v] + ' · YardSync';
+    if (v !== 'scan') fecharScanner();
+    if (v === 'patio') carregarPatio();
+    if (v === 'ti') carregarTI();
+    if (v === 'etiquetas') carregarEtiquetas(extra);
+    window.scrollTo(0, 0);
+    if (moverFoco) $('t-' + v).focus(); // leitor de tela anuncia o título da nova seção
+  }
+  document.querySelectorAll('nav button').forEach((b) => (b.onclick = () => irPara(b.dataset.v)));
+
+  /* ---------- Pátio ---------- */
+  const CORES = { 'Pátio Loja': 'var(--c-loja)', CD: 'var(--c-cd)', 'Em Trânsito': 'var(--c-transito)', 'Solicitado do CD': 'var(--c-solicitado)' };
+
+  async function carregarPatio() {
+    try {
+      const q = new URLSearchParams();
+      if ($('busca').value.trim()) q.set('busca', $('busca').value.trim());
+      if (filtros.localizacao) q.set('localizacao', filtros.localizacao);
+      if (filtros.dia) q.set('dia', filtros.dia);
+      const [res, lista] = await Promise.all([api('/resumo'), api('/agendamentos?' + q)]);
+
+      $('resumo').innerHTML =
+        LOCS.map((l) => `<button type="button" class="num" style="--cor:${CORES[l]}" data-loc="${esc(l)}" aria-pressed="${filtros.localizacao === l}"><b>${res.porLocalizacao[l] || 0}</b><span>${esc(l)}</span></button>`).join('') +
+        `<div class="num" style="--cor:var(--faixa)"><b>${res.entregasHoje}</b><span>Entregas de hoje</span></div>` +
+        `<div class="num" style="--cor:var(--erro)"><b>${res.atrasados}</b><span>Sem agendamento e atrasados</span></div>`;
+      document.querySelectorAll('.num[data-loc]').forEach((b) => (b.onclick = () => {
+        filtros.localizacao = filtros.localizacao === b.dataset.loc ? '' : b.dataset.loc;
+        carregarPatio();
+      }));
+      $('f-hoje').setAttribute('aria-pressed', String(filtros.dia === 'hoje'));
+
+      if (!lista.length) { $('lista').innerHTML = '<div class="vazio">Nenhum veículo encontrado com esses filtros.</div>'; return; }
+      const hoje = hojeISO();
+      $('lista').innerHTML = lista.map((v) => {
+        const atrasado = v.statusProcesso !== 'Entregue' && !v.dataAgendada && v.previsaoEntrega && v.previsaoEntrega < hoje;
+        const quando = v.dataAgendada ? 'Agendado: ' + fmtDH(v.dataAgendada) : 'Previsão: ' + fmtData(v.previsaoEntrega);
+        return `<button type="button" class="veiculo" data-chave="${esc(idVeiculo(v))}">
+          <div class="topo"><span class="placa">${esc(rotuloPlaca(v))}</span><span class="chip" data-loc="${esc(v.localizacao)}">${esc(v.localizacao)}</span></div>
+          <div class="meta">${esc(v.cliente || 'Sem cliente')} · ${esc(v.statusProcesso)}<br>${v.placa ? '' : 'Chassi ' + esc(v.chassi) + '<br>'}<span class="${atrasado ? 'atraso' : ''}">${esc(quando)}${atrasado ? ' (atrasado)' : ''}</span></div>
+        </button>`;
+      }).join('');
+      document.querySelectorAll('.veiculo').forEach((b) => (b.onclick = () => abrirFicha(b.dataset.chave)));
+    } catch (e) { $('lista').innerHTML = '<div class="vazio">' + esc(e.message) + '</div>'; }
+  }
+
+  let timerBusca;
+  $('busca').oninput = () => { clearTimeout(timerBusca); timerBusca = setTimeout(carregarPatio, 300); };
+  $('f-hoje').onclick = () => { filtros.dia = filtros.dia === 'hoje' ? '' : 'hoje'; carregarPatio(); };
+  $('f-limpar').onclick = () => { filtros = { localizacao: '', dia: '' }; $('busca').value = ''; carregarPatio(); };
+
+  /* ---------- Scanner ---------- */
+  let scanner = null;
+  let lendo = false;
+
+  // Aceita placa (ABC1234 / ABC1D23) ou chassi (17 caracteres, sem I, O, Q). O chassi tem prioridade.
+  function extrairIdentificador(texto) {
+    const t = String(texto).toUpperCase();
+    const vin = t.match(/(?:^|[^A-Z0-9])([A-HJ-NPR-Z0-9]{17})(?![A-Z0-9])/);
+    if (vin) return vin[1];
+    const solto = t.replace(/[^A-Z0-9]/g, ''); // digitado à mão, com espaços ou hífens
+    if (/^[A-HJ-NPR-Z0-9]{17}$/.test(solto)) return solto;
+    const placa = t.match(/[A-Z]{3}-?\d[A-Z0-9]\d{2}/);
+    return placa ? placa[0].replace('-', '') : null;
+  }
+
+  // Retorno ao ler: vibração (Android) e som curto
+  function bip() {
+    try {
+      const A = window.AudioContext || window.webkitAudioContext;
+      if (!A) return;
+      const ctx = bip.ctx || (bip.ctx = new A());
+      if (ctx.state === 'suspended') ctx.resume();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.15;
+      o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + 0.12);
+    } catch (e) { /* sem som */ }
+  }
+  function feedbackLeitura(id) {
+    if (navigator.vibrate) navigator.vibrate(120);
+    bip();
+    aviso(id.length === 17
+      ? 'Chassi final ' + id.slice(-6).split('').join(' ') + ' lido.'
+      : 'Placa ' + fmtPlaca(id).split('').join(' ') + ' lida.');
+  }
+
+  async function configurarLanterna() {
+    const b = $('btn-lanterna');
+    b.classList.add('hidden');
+    try {
+      const t = scanner.getRunningTrackCameraCapabilities().torchFeature();
+      if (!t.isSupported()) return;
+      b.classList.remove('hidden');
+      b.setAttribute('aria-pressed', 'false');
+      b.onclick = async () => {
+        const ligar = b.getAttribute('aria-pressed') !== 'true';
+        try { await t.apply(ligar); b.setAttribute('aria-pressed', String(ligar)); }
+        catch (e) { aviso('Este aparelho não permite ligar a lanterna pelo navegador.', 'erro'); }
+      };
+    } catch (e) { /* sem lanterna */ }
+  }
+
+  async function abrirScanner() {
+    if (scanner) return fecharScanner();
+    if (typeof Html5Qrcode === 'undefined') return aviso('Não foi possível carregar o leitor de QR Code. Verifique a internet.', 'erro');
+    // O toque neste botão libera o som para quando a placa for lida
+    try { const A = window.AudioContext || window.webkitAudioContext; if (A && !bip.ctx) bip.ctx = new A(); if (bip.ctx) bip.ctx.resume(); } catch (e) { /* ignora */ }
+    scanner = new Html5Qrcode('reader');
+    try {
+      await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 240, height: 240 } }, onLeitura, () => {});
+      $('btn-scan').textContent = 'Fechar câmera';
+      configurarLanterna();
+    } catch (e) {
+      scanner = null;
+      aviso('Não foi possível abrir a câmera. Permita o acesso (e use HTTPS) ou digite a placa ou o chassi.', 'erro');
+    }
+  }
+
+  async function fecharScanner() {
+    $('btn-lanterna').classList.add('hidden');
+    if (!scanner) return;
+    const s = scanner;
+    scanner = null;
+    try { await s.stop(); s.clear(); } catch (e) { /* já estava parado */ }
+    $('btn-scan').textContent = 'Abrir câmera';
+  }
+
+  async function onLeitura(texto) {
+    if (lendo) return;
+    const id = extrairIdentificador(texto);
+    if (!id) return; // QR sem placa nem chassi: continua tentando
+    lendo = true;
+    feedbackLeitura(id);
+    await fecharScanner();
+    await abrirFicha(id);
+    lendo = false;
+  }
+
+  $('btn-scan').onclick = abrirScanner;
+
+  function buscarManual() {
+    limparErro('err-manual');
+    const id = extrairIdentificador($('placa-manual').value);
+    if (!id) return mostrarErro('err-manual', 'Não reconheci a placa nem o chassi. Exemplos: ABC1234, ABC1D23 ou 17 caracteres do chassi.');
+    abrirFicha(id);
+  }
+  $('btn-manual').onclick = buscarManual;
+  $('placa-manual').addEventListener('keydown', (e) => { if (e.key === 'Enter') buscarManual(); }); // leitores Bluetooth/USB terminam com Enter
+
+  /* ---------- Ficha do veículo ---------- */
+  const ehAdmin = () => usuario && ['administrador', 'ti'].includes(usuario.role);
+
+  async function abrirFicha(chave) {
+    try {
+      limparErro('err-ficha');
+      const v = await api('/agendamentos/' + encodeURIComponent(chave));
+      chaveAtual = idVeiculo(v);
+      $('f-titulo').textContent = rotuloPlaca(v);
+      $('f-dados').innerHTML =
+        `<dt>Cliente</dt><dd>${esc(v.cliente || '-')}</dd>
+         <dt>Placa</dt><dd>${esc(v.placa ? fmtPlaca(v.placa) : 'Ainda sem placa')}</dd>
+         <dt>Chassi</dt><dd>${esc(v.chassi || '-')}</dd>
+         <dt>Faturamento</dt><dd>${esc(fmtData(v.dataFaturamento))}</dd>
+         <dt>Previsão de entrega</dt><dd>${esc(fmtData(v.previsaoEntrega))}</dd>
+         <dt>Entrega agendada</dt><dd>${esc(fmtDH(v.dataAgendada))}</dd>
+         <dt>Status</dt><dd>${esc(v.statusProcesso)}</dd>
+         <dt>Localização atual</dt><dd><span class="chip" data-loc="${esc(v.localizacao)}">${esc(v.localizacao)}</span></dd>
+         <dt>Observações</dt><dd>${esc(v.obs || '-')}</dd>`;
+      $('f-loc').value = v.localizacao;
+      $('f-admin').classList.toggle('hidden', !ehAdmin());
+      $('f-excluir').classList.toggle('hidden', usuario.role !== 'ti');
+      $('f-status').value = v.statusProcesso;
+      $('f-ag').value = v.dataAgendada ? v.dataAgendada.slice(0, 16).replace(' ', 'T') : '';
+      $('f-fat').value = v.dataFaturamento || '';
+      $('f-cliente').value = v.cliente || '';
+      $('f-placa').value = v.placa || '';
+      $('f-chassi').value = v.chassi || '';
+      $('f-obs').value = v.obs || '';
+      $('f-hist').innerHTML = v.historico.length
+        ? v.historico.map((h) => `<li>${esc(new Date(h.criado_em).toLocaleString('pt-BR'))} · ${esc(h.de || '-')} para <b>${esc(h.para)}</b> · ${esc(h.usuario || '')}</li>`).join('')
+        : '<li>Nenhuma movimentação registrada.</li>';
+      if (!$('ficha').open) $('ficha').showModal();
+    } catch (e) { aviso(e.message, 'erro'); }
+  }
+
+  $('f-fechar').onclick = () => $('ficha').close();
+  $('ficha').addEventListener('click', (e) => { if (e.target === $('ficha')) $('ficha').close(); });
+
+  $('f-salvar-loc').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/veiculos/scan', { method: 'POST', body: { chave: chaveAtual, novaLocalizacao: $('f-loc').value } });
+    aviso(d.mensagem, 'ok');
+    await abrirFicha(chaveAtual);
+    if (viewAtual === 'patio') carregarPatio();
+  }, 'err-ficha');
+
+  $('f-salvar').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/agendamentos/' + encodeURIComponent(chaveAtual), {
+      method: 'PUT',
+      body: {
+        statusProcesso: $('f-status').value, dataAgendada: $('f-ag').value, dataFaturamento: $('f-fat').value,
+        cliente: $('f-cliente').value, placa: $('f-placa').value, chassi: $('f-chassi').value, obs: $('f-obs').value,
+      },
+    });
+    aviso(d.mensagem, 'ok');
+    chaveAtual = idVeiculo(d.veiculo); // se a placa foi preenchida agora, a chave muda
+    await abrirFicha(chaveAtual);
+    if (viewAtual === 'patio') carregarPatio();
+  }, 'err-ficha');
+
+  $('f-excluir').onclick = (ev) => acao(ev.currentTarget, async () => {
+    if (!confirm('Excluir o veículo ' + fmtPlaca(chaveAtual) + '? O histórico dele também será apagado. Esta ação não pode ser desfeita.')) return;
+    const d = await api('/agendamentos/' + encodeURIComponent(chaveAtual), { method: 'DELETE' });
+    aviso(d.mensagem, 'ok');
+    $('ficha').close();
+    if (viewAtual === 'patio') carregarPatio();
+  }, 'err-ficha');
+
+  $('f-etiqueta').onclick = () => { $('ficha').close(); irPara('etiquetas', chaveAtual); };
+
+  /* ---------- Cadastro ---------- */
+  $('btn-novo').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/agendamentos', {
+      method: 'POST',
+      body: { placa: $('n-placa').value, chassi: $('n-chassi').value, cliente: $('n-cliente').value, dataFaturamento: $('n-fat').value, localizacao: $('n-loc').value },
+    });
+    aviso(d.mensagem + ' Previsão: ' + fmtData(d.veiculo.previsaoEntrega), 'ok');
+    ['n-placa', 'n-chassi', 'n-cliente'].forEach((i) => ($(i).value = ''));
+    $('n-placa').focus();
+  }, 'err-novo');
+
+  /* ---------- Etiquetas QR ---------- */
+  let etMapa = new Map();
+
+  // Desenha o QR como SVG (nível de correção Q: tolera sujeira e desgaste na etiqueta)
+  function qrSvg(texto, rotulo) {
+    const qr = qrcode(0, 'Q');
+    qr.addData(texto);
+    qr.make();
+    const n = qr.getModuleCount();
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+    const t = n + 8; // margem branca de 4 módulos ao redor
+    return `<svg viewBox="-4 -4 ${t} ${t}" shape-rendering="crispEdges" role="img" aria-label="${esc(rotulo)}"><rect x="-4" y="-4" width="${t}" height="${t}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  }
+
+  async function carregarEtiquetas(preselecionar) {
+    try {
+      const veiculos = await api('/agendamentos');
+      etMapa = new Map(veiculos.map((v) => [idVeiculo(v), v]));
+      $('et-lista').innerHTML = veiculos.map((v) => {
+        const id = idVeiculo(v);
+        const busca = [v.placa, v.chassi, v.cliente].filter(Boolean).join(' ').toLowerCase();
+        const final = !v.placa && v.chassi ? ' · chassi final ' + esc(v.chassi.slice(-6)) : '';
+        return `<label class="et-item" data-busca="${esc(busca)}"><input type="checkbox" value="${esc(id)}"${id === preselecionar ? ' checked' : ''}><span>${esc(rotuloPlaca(v))}${final} · ${esc(v.cliente || 'Sem cliente')}</span></label>`;
+      }).join('') || '<div class="vazio">Nenhum veículo cadastrado.</div>';
+      $('et-busca').value = '';
+      renderFolha();
+    } catch (e) { aviso(e.message, 'erro'); }
+  }
+
+  function renderFolha() {
+    const sel = [...document.querySelectorAll('#et-lista input:checked')].map((i) => i.value);
+    $('et-conta').textContent = sel.length + ' etiqueta(s) selecionada(s)';
+    $('btn-imprimir').disabled = !sel.length;
+    $('folha').style.setProperty('--qr', $('et-tam').value + 'cm');
+    if (sel.length && typeof qrcode === 'undefined') {
+      $('folha').innerHTML = '';
+      return aviso('Não foi possível carregar o gerador de QR Code. Verifique a internet.', 'erro');
+    }
+    // QR com a placa; se o carro ainda não tem placa, o QR leva o chassi
+    $('folha').innerHTML = sel.map((id) => {
+      const v = etMapa.get(id) || {};
+      const placa = v.placa ? fmtPlaca(v.placa) : '';
+      const nome = placa ? 'placa ' + placa : 'chassi ' + id;
+      const legenda = placa
+        ? esc(placa) + (v.chassi ? '<span class="chassi">' + esc(v.chassi) + '</span>' : '')
+        : '<span class="chassi grande">' + esc(id) + '</span>';
+      return `<figure class="etiqueta">${qrSvg(id, 'QR Code do veículo, ' + nome)}<figcaption>${legenda}</figcaption></figure>`;
+    }).join('');
+  }
+
+  $('et-lista').addEventListener('change', renderFolha);
+  $('et-tam').onchange = renderFolha;
+  $('et-busca').oninput = () => {
+    const q = $('et-busca').value.trim().toLowerCase();
+    document.querySelectorAll('.et-item').forEach((l) => l.classList.toggle('hidden', !!q && !l.dataset.busca.includes(q)));
+  };
+  $('et-todos').onclick = () => { document.querySelectorAll('.et-item:not(.hidden) input').forEach((i) => (i.checked = true)); renderFolha(); };
+  $('et-nenhum').onclick = () => { document.querySelectorAll('.et-item input').forEach((i) => (i.checked = false)); renderFolha(); };
+  $('btn-imprimir').onclick = () => window.print();
+
+  /* ---------- TI ---------- */
+  async function carregarTI() {
+    try {
+      const [cfg, users] = await Promise.all([api('/config'), api('/usuarios')]);
+      $('ti-sla').value = cfg.diasAposFaturamento;
+      $('ti-usuarios').innerHTML = users.map((u) =>
+        `<div class="usuario"><span><b>${esc(u.username)}</b> · ${esc(NOMES_PERFIL[u.role] || u.role)}</span>${u.username === usuario.username ? '' : `<button type="button" class="btn perigo" data-id="${u.id}" data-nome="${esc(u.username)}" aria-label="Remover usuário ${esc(u.username)}">Remover</button>`}</div>`
+      ).join('');
+      document.querySelectorAll('#ti-usuarios button').forEach((b) => (b.onclick = () => acao(b, async () => {
+        if (!confirm('Remover o usuário ' + b.dataset.nome + '? O acesso dele será revogado.')) return;
+        const d = await api('/usuarios/' + b.dataset.id, { method: 'DELETE' });
+        aviso(d.mensagem, 'ok');
+        carregarTI();
+      })));
+    } catch (e) { aviso(e.message, 'erro'); }
+  }
+
+  $('btn-sla').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/config', { method: 'PUT', body: { diasAposFaturamento: $('ti-sla').value } });
+    aviso(d.mensagem, 'ok');
+  }, 'err-sla');
+
+  $('btn-user').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/usuarios', { method: 'POST', body: { username: $('u-nome').value, password: $('u-senha').value, role: $('u-role').value } });
+    aviso(d.mensagem, 'ok');
+    $('u-nome').value = ''; $('u-senha').value = '';
+    carregarTI();
+  }, 'err-user');
+
+  /* ---------- Conta ---------- */
+  $('btn-senha').onclick = (ev) => acao(ev.currentTarget, async () => {
+    const d = await api('/me/senha', { method: 'POST', body: { atual: $('s-atual').value, nova: $('s-nova').value } });
+    aviso(d.mensagem, 'ok');
+    $('s-atual').value = ''; $('s-nova').value = '';
+  }, 'err-senha');
+
+  iniciar();
+</script>
+</body>
+</html>
